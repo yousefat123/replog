@@ -97,7 +97,7 @@ Open it from the home screen icon, tap ⚙, create your account / sign in. Done.
 
 ## Updating the app
 
-Edit the files, bump `VERSION` in `sw.js` (e.g. `replog-v2`), redeploy. The phone picks up the new version the next time the app is opened (sometimes the open after that).
+Edit the files, bump `VERSION` in `sw.js`, push to `main`. GitHub Pages redeploys in about a minute, and the phone loads the new version the next time the app is opened (it reloads itself, except during a workout).
 
 ## Going native later
 

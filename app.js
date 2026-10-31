@@ -9,11 +9,24 @@ const PRESETS = {
 PRESETS.Shoulders.push("Rear Delt Fly");
 PRESETS.Arms.push("Incline Dumbbell Curl","Close-Grip Bench Press","Overhead Triceps Extension");
 const E = (name,sets,lo,hi) => ({ name, sets, lo, hi });
-const DEFAULT_ROUTINES = () => [
+const MY_SPLIT = () => [
   { id:"r-ct", name:"Chest & Triceps", exercises:[E("Bench Press",4,6,10),E("Incline Dumbbell Press",3,8,12),E("Chest Fly",3,10,15),E("Dips",3,8,12),E("Triceps Pushdown",3,10,15),E("Skull Crusher",3,8,12)] },
   { id:"r-bb", name:"Back & Biceps", exercises:[E("Pull-up",3,6,10),E("Barbell Row",4,6,10),E("Lat Pulldown",3,8,12),E("Seated Cable Row",3,10,12),E("Barbell Curl",3,8,12),E("Hammer Curl",3,10,12)] },
   { id:"r-st", name:"Shoulders & Triceps", exercises:[E("Overhead Press",4,6,10),E("Lateral Raise",4,12,15),E("Face Pull",3,12,15),E("Rear Delt Fly",3,12,15),E("Close-Grip Bench Press",3,8,12),E("Overhead Triceps Extension",3,10,12)] },
   { id:"r-lb", name:"Legs & Biceps", exercises:[E("Squat",4,6,10),E("Romanian Deadlift",3,8,12),E("Leg Press",3,10,15),E("Leg Curl",3,10,15),E("Calf Raise",4,10,15),E("Incline Dumbbell Curl",3,10,12)] }
+];
+const TEMPLATES = [
+  { id:"split4", name:"Muscle-pair split", desc:"4 workouts: Chest & Triceps, Back & Biceps, Shoulders & Triceps, Legs & Biceps", make:MY_SPLIT },
+  { id:"ppl", name:"Push / Pull / Legs", desc:"3 workouts, run 3–6 days a week", make:() => [
+    { id:"r-push", name:"Push", exercises:[E("Bench Press",4,6,10),E("Overhead Press",3,8,12),E("Incline Dumbbell Press",3,8,12),E("Lateral Raise",3,12,15),E("Triceps Pushdown",3,10,15)] },
+    { id:"r-pull", name:"Pull", exercises:[E("Deadlift",3,5,8),E("Pull-up",3,6,10),E("Barbell Row",3,8,12),E("Face Pull",3,12,15),E("Barbell Curl",3,8,12)] },
+    { id:"r-legs", name:"Legs", exercises:[E("Squat",4,6,10),E("Romanian Deadlift",3,8,12),E("Leg Press",3,10,15),E("Leg Curl",3,10,15),E("Calf Raise",4,10,15)] }] },
+  { id:"ul", name:"Upper / Lower", desc:"2 workouts, usually 4 days a week", make:() => [
+    { id:"r-upper", name:"Upper", exercises:[E("Bench Press",4,6,10),E("Barbell Row",4,6,10),E("Overhead Press",3,8,12),E("Lat Pulldown",3,8,12),E("Barbell Curl",2,10,12),E("Triceps Pushdown",2,10,12)] },
+    { id:"r-lower", name:"Lower", exercises:[E("Squat",4,6,10),E("Romanian Deadlift",3,8,10),E("Leg Press",3,10,12),E("Leg Curl",3,10,12),E("Calf Raise",3,12,15)] }] },
+  { id:"fb", name:"Full Body", desc:"1 workout, 2–3 days a week", make:() => [
+    { id:"r-full", name:"Full Body", exercises:[E("Squat",3,6,10),E("Bench Press",3,6,10),E("Barbell Row",3,8,12),E("Overhead Press",2,8,12),E("Romanian Deadlift",2,8,12)] }] },
+  { id:"own", name:"Build my own", desc:"Start with one empty workout and add what you do", make:() => [{ id:"r-"+uid(), name:"", exercises:[] }] }
 ];
 const DOW = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
 const DOWL = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
@@ -34,7 +47,7 @@ const fmtKg = n => (Math.round(n*10)/10).toLocaleString("en-US");
 const e1rm = (w,r) => r > 0 && w > 0 ? w*(1+r/30) : 0;
 const norm = s => String(s).trim().toLowerCase();
 
-const S = { days:{}, routines:[], cur:today(), view:"log", progEx:null, sheet:null, menu:null, armDel:null, q:"", openR:null, armR:null, live:null };
+const S = { days:{}, routines:[], cur:today(), view:"log", progEx:null, sheet:null, menu:null, armDel:null, q:"", openR:null, armR:null, live:null, planLoaded:false, gate:null, setup:null, firstPullDone:false };
 
 /* ---------- storage: IndexedDB on the phone, optional Supabase sync ---------- */
 const CFG = window.REPLOG_CONFIG || {};
@@ -62,13 +75,13 @@ const idb = (() => {
 })();
 
 function applyRecord(r){
-  if (r.id === "plan") { if (!r.deleted && r.data && Array.isArray(r.data.routines)) S.routines = r.data.routines; return; }
+  if (r.id === "plan") { if (!r.deleted && r.data && Array.isArray(r.data.routines)) { if (!S.setup || !S.setup.manual) { S.routines = r.data.routines; S.setup = null; } S.planLoaded = true; } return; }
   if (r.id === "settings") { if (!r.deleted && r.data) Object.assign(SET, r.data); return; }
   if (r.deleted || !r.data || !r.data.exercises) delete S.days[r.id];
   else S.days[r.id] = { exercises:r.data.exercises, planName:r.data.planName || "", routineId:r.data.routineId || "" };
 }
 async function loadLocal(){
-  S.routines = DEFAULT_ROUTINES();
+  S.routines = []; S.planLoaded = false;
   try { (await idb.all()).forEach(applyRecord); } catch (e) { toast("This browser blocked storage. Logs won't be kept."); }
 }
 async function writeDoc(id, data){
@@ -80,7 +93,7 @@ function persist(k){
   clearTimeout(timers[k]);
   timers[k] = setTimeout(() => {
     delete timers[k];
-    if (k === "plan") return writeDoc("plan", { routines:S.routines });
+    if (k === "plan") { if (S.setup) return; return writeDoc("plan", { routines:S.routines }); }
     if (k === "settings") return writeDoc("settings", { ...SET });
     const day = S.days[k];
     writeDoc(k, day && day.exercises && day.exercises.length ? { date:k, exercises:day.exercises, planName:day.planName || "", routineId:day.routineId || "" } : null);
@@ -119,6 +132,7 @@ async function sync(){
     }
     await idb.setMeta("lastPull:" + session.user.id, maxSeen);
     syncState = { ok:true, at:new Date(), msg:"" };
+    S.firstPullDone = true;
     if (changed) scheduleRender();
   } catch (e) {
     syncState = { ok:false, at:new Date(), msg:(e && e.message) || "Sync failed" };
@@ -126,26 +140,36 @@ async function sync(){
     syncing = false; setSync();
     if (syncAgain) { syncAgain = false; scheduleSync(500); }
     if (S.settings) renderSettings();
+    decideGate();
   }
 }
 function setSync(text){
   const el = $("#sync"); if (!el) return;
   let on = false;
   if (!text) {
-    if (!sb) text = "Saved on this phone";
-    else if (!session) text = "Not signed in · on this phone";
+    if (!sb || !session) text = "On this phone only";
     else if (!navigator.onLine) text = "Offline · will sync later";
     else if (syncState.ok === false) text = "Sync problem · tap ⚙";
-    else { text = "Synced"; on = true; }
+    else { text = userName() ? `${userName().split(" ")[0]} · synced` : "Synced"; on = true; }
   }
   el.classList.toggle("on", on); el.querySelector("span").textContent = text;
 }
 async function initAuth(){
   if (!sb) { setSync(); return; }
   try { session = (await sb.auth.getSession()).data.session; } catch {}
-  sb.auth.onAuthStateChange((_ev, s) => { const was = session && session.user.id; session = s; setSync(); if (s && s.user.id !== was) scheduleSync(); if (S.settings) renderSettings(); });
+  // "Keep me signed in" off: forget the session when the app is fully closed.
+  try { if (session && localStorage.getItem("replog.remember") === "0" && !sessionStorage.getItem("replog.alive")) { await sb.auth.signOut({ scope:"local" }); session = null; } } catch {}
+  try { sessionStorage.setItem("replog.alive", "1"); } catch {}
+  sb.auth.onAuthStateChange((ev, s) => {
+    const was = session && session.user.id; session = s; setSync();
+    if (ev === "PASSWORD_RECOVERY") { auth.mode = "reset"; S.gate = "auth"; renderGate(); return; }
+    if (s && s.user.id !== was) { S.firstPullDone = false; scheduleSync(); }
+    if (S.settings) renderSettings();
+    decideGate();
+  });
   setSync(); if (session) scheduleSync();
 }
+const userName = () => (session && session.user.user_metadata && session.user.user_metadata.name) || "";
 window.addEventListener("online", () => scheduleSync());
 window.addEventListener("offline", () => setSync());
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") scheduleSync(300); });
@@ -229,6 +253,7 @@ function render(){
   const v = S.view;
   $("#main").innerHTML = v === "log" ? viewLog() : v === "plan" ? viewPlan() : v === "progress" ? viewProgress() : viewHistory();
   renderLive(); renderSheet(); drawRest();
+  if (S.gate === "setup") renderGate();
 }
 
 function renderWeek(){
@@ -324,7 +349,8 @@ function viewPlan(){
       ${open ? routineBody(r,i) : ""}</section>`;
   });
   return h + `</div><div style="margin-top:12px"><button class="cta" data-act="rnew">+ New workout</button></div>
-    <p style="color:var(--muted);font-size:13px;margin:14px 2px 0">Today shows the next workout after the last one you did. You can always pick a different one there.</p>`;
+    <p style="color:var(--muted);font-size:13px;margin:14px 2px 0">Today shows the next workout after the last one you did. You can always pick a different one there.</p>
+    <button class="btn ghost" style="width:100%;margin-top:16px" data-act="rebuild">Start over from a template</button>`;
 }
 function routineBody(r,i){
   const arm = S.armR === r.id;
@@ -548,6 +574,108 @@ function tickRest(){
 function renderLiveKeepFocus(){ const a = document.activeElement; if (a && a.tagName === "INPUT") return; renderLive(); }
 function drawRest(){ $("#restWrap").innerHTML = rest && !S.live ? restHTML(false) : ""; }
 
+/* ---------- sign-in & first-time setup screens ---------- */
+const auth = { mode:"signin", busy:false, err:"", info:"" };
+const isGuest = () => { try { return localStorage.getItem("replog.guest") === "1"; } catch { return false; } };
+function decideGate(){
+  let g = null;
+  if (S.setup && S.setup.manual) g = "setup";
+  else if (sb && !session && !isGuest()) g = "auth";
+  else if (auth.mode === "reset" && S.gate === "auth") g = "auth";
+  else if (sb && session && !S.firstPullDone && navigator.onLine && syncState.ok !== false) g = "loading";
+  else if (!S.planLoaded) { g = "setup"; if (!S.setup) S.setup = { step:1, tpl:null, manual:false }; }
+  if (g !== "setup" && S.setup && !S.setup.manual) S.setup = null;
+  const changed = g !== S.gate; S.gate = g;
+  if (changed || g) { renderGate(); if (!g) render(); }
+}
+function renderGate(){
+  const w = $("#gateWrap"); document.body.classList.toggle("gated", !!S.gate);
+  if (!S.gate) { w.innerHTML = ""; return; }
+  if (S.gate === "loading") { w.innerHTML = `<div class="gate"><div class="gin center"><div class="logo">Rep<span>/</span>Log</div><p class="muted">Loading your workouts…</p></div></div>`; return; }
+  if (S.gate === "auth") { renderAuth(w); return; }
+  renderSetup(w);
+}
+function renderAuth(w){
+  const keep = { n:$("#au-name")?.value, e:$("#au-email")?.value };
+  const m = auth.mode;
+  let remember = true; try { remember = localStorage.getItem("replog.remember") !== "0"; } catch {}
+  const title = m === "signup" ? "Create your account" : m === "forgot" ? "Reset your password" : m === "reset" ? "Choose a new password" : "Welcome back";
+  w.innerHTML = `<div class="gate"><form class="gin" id="authForm" novalidate>
+    <div class="logo">Rep<span>/</span>Log</div>
+    <div><h2>${title}</h2><p class="muted">${m === "signup" ? "Your workouts and history are saved to your account and sync to any phone." : m === "forgot" ? "We'll email you a link to set a new password." : m === "reset" ? "Enter the new password for your account." : "Sign in to pick up where you left off."}</p></div>
+    ${m === "signin" || m === "signup" ? `<div class="seg" role="tablist"><button type="button" role="tab" data-act="au-mode" data-m="signin" aria-selected="${m==="signin"}">Sign in</button><button type="button" role="tab" data-act="au-mode" data-m="signup" aria-selected="${m==="signup"}">Create account</button></div>` : ""}
+    ${m === "signup" ? `<label class="fld"><span>Your name</span><input id="au-name" autocomplete="given-name" placeholder="e.g. Yousef"></label>` : ""}
+    ${m !== "reset" ? `<label class="fld"><span>Email</span><input id="au-email" type="email" inputmode="email" autocomplete="email" autocapitalize="off" placeholder="you@example.com"></label>` : ""}
+    ${m !== "forgot" ? `<label class="fld"><span>${m === "reset" ? "New password" : "Password"}</span><input id="au-pass" type="password" autocomplete="${m === "signin" ? "current-password" : "new-password"}" placeholder="At least 6 characters"></label>` : ""}
+    ${m === "signin" || m === "signup" ? `<label class="check"><input type="checkbox" id="au-remember" ${remember ? "checked" : ""}><span>Keep me signed in on this phone</span></label>` : ""}
+    ${auth.err ? `<p class="err" role="alert">${esc(auth.err)}</p>` : ""}${auth.info ? `<p class="ok" role="status">${esc(auth.info)}</p>` : ""}
+    <button class="btn big" type="submit" ${auth.busy ? "disabled" : ""}>${auth.busy ? "One moment…" : m === "signup" ? "Create account" : m === "forgot" ? "Send reset link" : m === "reset" ? "Save new password" : "Sign in"}</button>
+    <div class="links">
+      ${m === "signin" ? `<button type="button" data-act="au-mode" data-m="forgot">Forgot password?</button>` : ""}
+      ${m === "forgot" ? `<button type="button" data-act="au-mode" data-m="signin">Back to sign in</button>` : ""}
+      ${m === "signin" || m === "signup" ? `<button type="button" data-act="au-guest">Use without an account</button>` : ""}
+    </div></form></div>`;
+  if (keep.n && $("#au-name")) $("#au-name").value = keep.n;
+  if (keep.e && $("#au-email")) $("#au-email").value = keep.e;
+}
+async function submitAuth(){
+  const m = auth.mode, email = $("#au-email")?.value.trim(), password = $("#au-pass")?.value || "", name = $("#au-name")?.value.trim();
+  auth.err = ""; auth.info = "";
+  if (m !== "reset" && !/^\S+@\S+\.\S+$/.test(email || "")) { auth.err = "Enter a valid email address."; return renderGate(); }
+  if (m !== "forgot" && password.length < 6) { auth.err = "Password needs at least 6 characters."; return renderGate(); }
+  try { const rm = $("#au-remember"); if (rm) localStorage.setItem("replog.remember", rm.checked ? "1" : "0"); } catch {}
+  auth.busy = true; renderGate();
+  try {
+    let r;
+    if (m === "signup") r = await sb.auth.signUp({ email, password, options:{ data:{ name } } });
+    else if (m === "signin") r = await sb.auth.signInWithPassword({ email, password });
+    else if (m === "forgot") r = await sb.auth.resetPasswordForEmail(email, { redirectTo:location.origin + location.pathname });
+    else r = await sb.auth.updateUser({ password });
+    if (r.error) auth.err = /invalid login/i.test(r.error.message) ? "Wrong email or password." : r.error.message;
+    else if (m === "signup" && !r.data.session) { auth.info = "Account created. Open the confirmation email, then sign in here."; auth.mode = "signin"; }
+    else if (m === "forgot") auth.info = "Check your email for the reset link.";
+    else if (m === "reset") { auth.mode = "signin"; auth.info = ""; toast("Password updated"); }
+    try { localStorage.removeItem("replog.guest"); } catch {}
+  } catch { auth.err = "Couldn't reach the server. Check your connection and try again."; }
+  auth.busy = false;
+  if (session && auth.mode !== "reset") { S.gate = null; decideGate(); } else renderGate();
+}
+
+function renderSetup(w){
+  const st = S.setup, first = !st.manual;
+  const hello = userName() ? `Hi ${esc(userName().split(" ")[0])}! ` : "";
+  if (st.step === 1) {
+    w.innerHTML = `<div class="gate"><div class="gin">
+      <div class="steps"><i class="on"></i><i></i></div>
+      <div><h2>${first ? `${hello}Let's build your workouts` : "Start over from a template"}</h2>
+      <p class="muted">${first ? "Pick how you split your training. You'll adjust the exercises next, and can change everything later in the Plan tab." : "This replaces your current workouts. Your logged history stays."}</p></div>
+      <div class="tpl">${TEMPLATES.map(t => `<button data-act="su-tpl" data-t="${t.id}" aria-pressed="${st.tpl === t.id}"><strong>${t.name}</strong><span>${t.desc}</span></button>`).join("")}</div>
+      <div class="pair">${first ? "" : `<button class="btn ghost" data-act="su-cancel">Cancel</button>`}<button class="btn big" data-act="su-next" ${st.tpl ? "" : "disabled"}>Next: adjust exercises</button></div>
+    </div></div>`;
+    return;
+  }
+  const openId = S.openR;
+  w.innerHTML = `<div class="gate"><div class="gin">
+    <div class="steps"><i class="on"></i><i class="on"></i></div>
+    <div><h2>Your workouts</h2><p class="muted">Tap a workout to rename it, add or remove exercises, and set sets and reps. You'll do them in this order, then repeat.</p></div>
+    <div class="plan">${S.routines.map((r,i) => `<section class="pday ${openId===r.id?"open":""}">
+      <button class="phead" data-act="ropen" data-r="${r.id}" aria-expanded="${openId===r.id}"><span class="dw">${i+1}</span>
+        <span class="t"><strong>${esc(r.name || "Untitled workout")}</strong><span>${r.exercises.length ? esc(r.exercises.map(e => e.name).join(" · ")) : "No exercises yet"}</span></span><span class="chev">›</span></button>
+      ${openId===r.id ? routineBody(r,i) : ""}</section>`).join("")}</div>
+    <button class="cta" data-act="rnew">+ Add another workout</button>
+    <div class="pair"><button class="btn ghost" data-act="su-back">Back</button><button class="btn big" data-act="su-save">Save my workouts</button></div>
+  </div></div>`;
+}
+function setupSave(){
+  const rs = S.routines.filter(r => r.exercises.length || r.name.trim());
+  if (!rs.length || !rs.some(r => r.exercises.length)) { toast("Add at least one exercise first"); return; }
+  rs.forEach((r,i) => { if (!r.name.trim()) r.name = `Workout ${String.fromCharCode(65+i)}`; });
+  S.routines = rs; S.setup = null; S.planLoaded = true; S.openR = null;
+  persist("plan"); S.view = "log"; S.cur = today();
+  S.gate = null; renderGate(); render(); scrollTo(0,0); toast("Workouts saved");
+}
+document.addEventListener("submit", e => { if (e.target.id === "authForm") { e.preventDefault(); submitAuth(); } });
+
 /* ---------- settings, account, backup ---------- */
 let authBusy = false, authErr = "";
 const standalone = () => matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
@@ -557,12 +685,9 @@ function renderSettings(){
   const keep = { e: $("#se-email")?.value, p: $("#se-pass")?.value };
   let acct;
   if (!sb) acct = `<p class="muted">Cloud sync isn't set up yet, so logs are saved only on this phone. Add your Supabase keys to <code>config.js</code> to back up and sync across devices.</p>`;
-  else if (!session) acct = `<p class="muted">Sign in to back up your logs and use them on any device.</p>
-    <input class="search" id="se-email" type="email" autocomplete="email" placeholder="Email">
-    <input class="search" id="se-pass" type="password" autocomplete="current-password" placeholder="Password (6+ characters)">
-    ${authErr ? `<p class="err">${esc(authErr)}</p>` : ""}
-    <div class="pair"><button class="btn" data-act="signin" ${authBusy?"disabled":""}>Sign in</button><button class="btn ghost" data-act="signup" ${authBusy?"disabled":""}>Create account</button></div>`;
-  else acct = `<p><b>${esc(session.user.email)}</b></p>
+  else if (!session) acct = `<p class="muted">You're using the app without an account. Sign in to back up your logs and use them on any device.</p>
+    <button class="btn" data-act="go-signin">Sign in or create account</button>`;
+  else acct = `<p><b>${esc(userName() || session.user.email)}</b>${userName() ? `<br><span class="muted">${esc(session.user.email)}</span>` : ""}</p>
     <p class="muted">${!navigator.onLine ? "Offline. Changes sync when you're back online." : syncState.ok === false ? `Last sync failed: ${esc(syncState.msg)}` : syncState.at ? `Synced at ${syncState.at.toLocaleTimeString([], { hour:"2-digit", minute:"2-digit" })}` : "Not synced yet"}</p>
     <div class="pair"><button class="btn" data-act="syncnow">${syncing ? "Syncing…" : "Sync now"}</button><button class="btn ghost" data-act="signout">Sign out</button></div>`;
   const chip = (act, v, cur, label) => `<button class="chip" data-act="${act}" data-v="${v}" aria-pressed="${cur === v}">${label}</button>`;
@@ -590,6 +715,14 @@ async function doAuth(kind){
   } catch (e) { authErr = "Couldn't reach the server. Check your connection."; }
   authBusy = false; renderSettings();
 }
+async function signOutAll(){
+  if (navigator.onLine) await sync();
+  const dirty = (await idb.all()).filter(r => r.dirty);
+  if (dirty.length) { toast("Some changes haven't synced yet. Connect to the internet, then sign out."); return; }
+  await sb.auth.signOut();
+  try { await idb.clear(); localStorage.removeItem("replog.guest"); } catch {}
+  location.reload();
+}
 async function exportBackup(){
   const docs = (await idb.all()).filter(r => !r.deleted).map(r => ({ id:r.id, data:r.data, updatedAt:r.updatedAt }));
   const blob = new Blob([JSON.stringify({ app:"replog", version:1, exportedAt:new Date().toISOString(), docs }, null, 1)], { type:"application/json" });
@@ -613,10 +746,19 @@ document.addEventListener("click", e => {
   const b = e.target.closest("[data-act],[data-view]"); if (!b || b.disabled) return;
   if (b.dataset.view) { S.view = b.dataset.view; S.menu = null; S.armR = null; render(); scrollTo(0,0); return; }
   const a = b.dataset.act;
+  if (a === "go-signin") { try { localStorage.removeItem("replog.guest"); } catch {} S.settings = false; renderSettings(); auth.mode = "signin"; decideGate(); return; }
+  if (a === "au-mode") { auth.mode = b.dataset.m; auth.err = ""; auth.info = ""; renderGate(); return; }
+  if (a === "au-guest") { try { localStorage.setItem("replog.guest", "1"); } catch {} decideGate(); return; }
+  if (a === "su-tpl") { S.setup.tpl = b.dataset.t; renderGate(); return; }
+  if (a === "su-next") { const t = TEMPLATES.find(x => x.id === S.setup.tpl); S.routines = t.make(); S.openR = S.routines[0] && !S.routines[0].exercises.length ? S.routines[0].id : null; S.setup.step = 2; renderGate(); $("#gateWrap .gate").scrollTop = 0; return; }
+  if (a === "su-back") { S.setup.step = 1; renderGate(); return; }
+  if (a === "su-save") { setupSave(); return; }
+  if (a === "su-cancel") { S.routines = S.setup.backup; S.setup = null; S.gate = null; renderGate(); render(); return; }
+  if (a === "rebuild") { S.setup = { step:1, tpl:null, manual:true, backup:JSON.parse(JSON.stringify(S.routines)) }; S.openR = null; decideGate(); return; }
   if (a === "settings") { S.settings = true; authErr = ""; renderSettings(); return; }
   if (a === "setclose") { if (e.target === b || b.tagName === "BUTTON") { S.settings = false; renderSettings(); } return; }
   if (a === "signin" || a === "signup") { doAuth(a === "signup" ? "up" : "in"); return; }
-  if (a === "signout") { sb.auth.signOut(); return; }
+  if (a === "signout") { signOutAll(); return; }
   if (a === "syncnow") { sync(); renderSettings(); return; }
   if (a === "setrest" || a === "setstep") { SET[a === "setrest" ? "rest" : "step"] = +b.dataset.v; persist("settings"); renderSettings(); render(); return; }
   if (a === "export") { exportBackup(); return; }
@@ -723,8 +865,20 @@ document.addEventListener("keydown", e => {
 });
 
 (async () => {
-  await loadLocal(); render(); initAuth();
+  await loadLocal(); render(); await initAuth(); decideGate();
   try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch {}
-  if ("serviceWorker" in navigator && location.protocol !== "file:") navigator.serviceWorker.register("sw.js").catch(() => {});
+  if ("serviceWorker" in navigator && location.protocol !== "file:") {
+    const hadController = !!navigator.serviceWorker.controller;
+    navigator.serviceWorker.register("sw.js").then(reg => {
+      document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") reg.update().catch(() => {}); });
+    }).catch(() => {});
+    // A new version took over: reload to show it, unless a workout is in progress.
+    let reloaded = false;
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (!hadController || reloaded) return;
+      if (S.live) { toast("App updated. Changes show after this workout."); return; }
+      reloaded = true; location.reload();
+    });
+  }
 })();
 })();

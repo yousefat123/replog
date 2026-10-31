@@ -1,6 +1,6 @@
 // Rep Log service worker: app shell works offline; updates load in the background.
 // Bump VERSION when you deploy changes so old caches are cleared.
-const VERSION = "replog-v1";
+const VERSION = "replog-v2";
 const SHELL = [
   "./", "./index.html", "./styles.css", "./app.js", "./config.js", "./manifest.webmanifest",
   "./icons/icon-192.png", "./icons/icon-512.png", "./icons/apple-touch-icon.png",
@@ -26,14 +26,19 @@ self.addEventListener("fetch", e => {
     url.hostname === "fonts.googleapis.com" || url.hostname === "fonts.gstatic.com";
   if (!cacheable) return;
 
-  // Stale-while-revalidate: answer from cache instantly, refresh it in the background.
+  // App files: try the network first (so new versions show up immediately), fall back to the cache
+  // after 3 s or when offline, so the app still opens instantly with no signal at the gym.
+  // Fonts and the Supabase library: cache first, they never change.
+  const appFile = url.origin === location.origin;
   e.respondWith(caches.open(VERSION).then(async cache => {
     const key = req.mode === "navigate" ? "./index.html" : req;
     const cached = await cache.match(key, { ignoreSearch: req.mode === "navigate" });
-    const network = fetch(req).then(res => {
+    const network = fetch(req, appFile ? { cache: "no-cache" } : undefined).then(res => {
       if (res && (res.ok || res.type === "opaque")) cache.put(key, res.clone());
       return res;
-    }).catch(() => cached);
-    return cached || network;
+    });
+    if (!appFile) return cached || network;
+    if (!cached) return network;
+    return Promise.race([network.catch(() => cached), new Promise(r => setTimeout(() => r(cached), 3000))]);
   }));
 });
