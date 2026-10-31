@@ -270,8 +270,8 @@ body.gated{overflow:hidden}
 .check{display:flex;align-items:center;gap:10px;font-size:15px}
 .check input{width:20px;height:20px;accent-color:var(--accent)}
 .ok{color:var(--good);font-size:14px;margin:0;font-weight:600}
-.btn.big{min-height:54px;font-size:17px;font-weight:700;border-radius:13px;width:100%}
-.pair .btn.big{flex:2}
+.btn.cta-main{min-height:54px;font-size:17px;font-weight:700;border-radius:13px;width:100%}
+.pair .btn.cta-main{flex:2}
 .links{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}
 .links button{color:var(--accent);font-weight:600;font-size:14px;padding:6px 0}
 .steps{display:flex;gap:6px}

@@ -639,7 +639,7 @@ function renderAuth(w){
     ${m !== "forgot" ? `<label class="fld"><span>${m === "reset" ? "New password" : "Password"}</span><input id="au-pass" type="password" autocomplete="${m === "signin" ? "current-password" : "new-password"}" placeholder="At least 6 characters"></label>` : ""}
     ${m === "signin" || m === "signup" ? `<label class="check"><input type="checkbox" id="au-remember" ${remember ? "checked" : ""}><span>Keep me signed in on this phone</span></label>` : ""}
     ${auth.err ? `<p class="err" role="alert">${esc(auth.err)}</p>` : ""}${auth.info ? `<p class="ok" role="status">${esc(auth.info)}</p>` : ""}
-    <button class="btn big" type="submit" ${auth.busy ? "disabled" : ""}>${auth.busy ? "One moment…" : m === "signup" ? "Create account" : m === "forgot" ? "Send reset link" : m === "reset" ? "Save new password" : "Sign in"}</button>
+    <button class="btn cta-main" type="submit" ${auth.busy ? "disabled" : ""}>${auth.busy ? "One moment…" : m === "signup" ? "Create account" : m === "forgot" ? "Send reset link" : m === "reset" ? "Save new password" : "Sign in"}</button>
     <div class="links">
       ${m === "signin" ? `<button type="button" data-act="au-mode" data-m="forgot">Forgot password?</button>` : ""}
       ${m === "forgot" ? `<button type="button" data-act="au-mode" data-m="signin">Back to sign in</button>` : ""}
@@ -680,7 +680,7 @@ function renderSetup(w){
       <div><h2>${first ? `${hello}Let's build your workouts` : "Start over from a template"}</h2>
       <p class="muted">${first ? "Pick how you split your training. You'll adjust the exercises next, and can change everything later in the Plan tab." : "This replaces your current workouts. Your logged history stays."}</p></div>
       <div class="tpl">${TEMPLATES.map(t => `<button data-act="su-tpl" data-t="${t.id}" aria-pressed="${st.tpl === t.id}"><strong>${t.name}</strong><span>${t.desc}</span></button>`).join("")}</div>
-      <div class="pair">${first ? "" : `<button class="btn ghost" data-act="su-cancel">Cancel</button>`}<button class="btn big" data-act="su-next" ${st.tpl ? "" : "disabled"}>Next: adjust exercises</button></div>
+      <div class="pair">${first ? "" : `<button class="btn ghost" data-act="su-cancel">Cancel</button>`}<button class="btn cta-main" data-act="su-next" ${st.tpl ? "" : "disabled"}>Next: adjust exercises</button></div>
     </div></div>`;
     return;
   }
@@ -693,7 +693,7 @@ function renderSetup(w){
         <span class="t"><strong>${esc(r.name || "Untitled workout")}</strong><span>${r.exercises.length ? esc(r.exercises.map(e => e.name).join(" · ")) : "No exercises yet"}</span></span><span class="chev">›</span></button>
       ${openId===r.id ? routineBody(r,i) : ""}</section>`).join("")}</div>
     <button class="cta" data-act="rnew">+ Add another workout</button>
-    <div class="pair"><button class="btn ghost" data-act="su-back">Back</button><button class="btn big" data-act="su-save">Save my workouts</button></div>
+    <div class="pair"><button class="btn ghost" data-act="su-back">Back</button><button class="btn cta-main" data-act="su-save">Save my workouts</button></div>
   </div></div>`;
 }
 function setupSave(){
@@ -727,7 +727,7 @@ function renderCloud(){
         <label class="fld"><span>Anon public key</span><input id="cl-key" autocapitalize="off" autocomplete="off" placeholder="eyJhbGciOi…"></label></li>
     </ol>
     ${cloud.err ? `<p class="err" role="alert">${esc(cloud.err)}</p>` : ""}
-    <button class="btn big" type="submit" ${cloud.busy ? "disabled" : ""}>${cloud.busy ? "Checking connection…" : "Connect"}</button>
+    <button class="btn cta-main" type="submit" ${cloud.busy ? "disabled" : ""}>${cloud.busy ? "Checking connection…" : "Connect"}</button>
   </form></div>`;
   if (keep.u) $("#cl-url").value = keep.u;
   if (keep.k) $("#cl-key").value = keep.k;

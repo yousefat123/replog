@@ -1,6 +1,6 @@
 // Rep Log service worker: app shell works offline; updates load in the background.
 // Bump VERSION when you deploy changes so old caches are cleared.
-const VERSION = "replog-v4";
+const VERSION = "replog-v5";
 const SHELL = [
   "./", "./index.html", "./styles.css", "./app.js", "./config.js", "./manifest.webmanifest",
   "./icons/icon-192.png", "./icons/icon-512.png", "./icons/apple-touch-icon.png",
