@@ -294,3 +294,14 @@ body.gated{overflow:hidden}
 .setcmp{display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding-bottom:10px;border-bottom:1px solid var(--line);font-size:14px;color:var(--muted)}
 .setcmp > b{font-family:var(--display);font-size:20px;color:var(--ink);font-weight:700;text-transform:uppercase}
 .setcmp span b{color:var(--ink)}
+
+/* cloud setup */
+.howto{margin:0;padding-left:22px;display:grid;gap:16px}
+.howto li{font-size:15px;line-height:1.5}
+.howto li > .btn,.howto li > .fld,.howto li > textarea{margin-top:8px}
+.howto li > .fld{display:grid}
+.howto li > textarea{display:block}
+.howto li::marker{font-family:var(--display);font-weight:700;color:var(--accent)}
+.howto .btn{display:block;width:max-content;text-decoration:none;font-size:14px;padding:10px 14px}
+.howto textarea{width:100%;font:12px/1.4 ui-monospace,Menlo,monospace;border:1px solid var(--line);border-radius:9px;background:var(--sunk);color:var(--muted);padding:8px;resize:vertical}
+.linkbtn{color:var(--danger);font-weight:600;font-size:14px;justify-self:start;padding:4px 0}

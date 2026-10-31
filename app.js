@@ -50,7 +50,31 @@ const norm = s => String(s).trim().toLowerCase();
 const S = { days:{}, routines:[], cur:today(), view:"log", progEx:null, sheet:null, menu:null, armDel:null, q:"", openR:null, armR:null, live:null, planLoaded:false, gate:null, setup:null, firstPullDone:false };
 
 /* ---------- storage: IndexedDB on the phone, optional Supabase sync ---------- */
-const CFG = window.REPLOG_CONFIG || {};
+const CFG = (() => {
+  // Keys can come from config.js (deployed) or be pasted in the app (saved on this phone).
+  let local = null; try { local = JSON.parse(localStorage.getItem("replog.cloud")); } catch {}
+  const file = window.REPLOG_CONFIG || {};
+  return local && local.supabaseUrl ? { ...local, fromApp:true } : file;
+})();
+const SETUP_SQL = `create table if not exists public.docs (
+  user_id    uuid    not null default auth.uid() references auth.users on delete cascade,
+  id         text    not null,
+  data       jsonb,
+  updated_at bigint  not null,
+  deleted    boolean not null default false,
+  synced_at  timestamptz not null default now(),
+  primary key (user_id, id)
+);
+create index if not exists docs_user_synced on public.docs (user_id, synced_at);
+alter table public.docs enable row level security;
+drop policy if exists "own rows only" on public.docs;
+create policy "own rows only" on public.docs
+  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+create or replace function public.touch_synced_at() returns trigger
+language plpgsql as $$ begin new.synced_at = now(); return new; end $$;
+drop trigger if exists docs_touch on public.docs;
+create trigger docs_touch before insert or update on public.docs
+  for each row execute function public.touch_synced_at();`;
 const SET = { rest:90, step:2.5 };
 let renderPending = false;
 const timers = {};
@@ -682,6 +706,56 @@ function setupSave(){
 }
 document.addEventListener("submit", e => { if (e.target.id === "authForm") { e.preventDefault(); submitAuth(); } });
 
+/* ---------- cloud sync setup (paste Supabase keys on the phone) ---------- */
+const cloud = { open:false, busy:false, err:"", copied:false };
+function renderCloud(){
+  const w = $("#cloudWrap");
+  if (!cloud.open) { w.innerHTML = ""; return; }
+  const keep = { u:$("#cl-url")?.value, k:$("#cl-key")?.value };
+  w.innerHTML = `<div class="gate" style="z-index:45"><form class="gin" id="cloudForm" novalidate>
+    <div class="lhead"><button type="button" class="x" data-act="cloud-close" aria-label="Close">✕</button><small>Cloud sync setup</small><span style="width:44px"></span></div>
+    <div><h2>Back up and sync with Supabase</h2><p class="muted">Free, no credit card. About 5 minutes, all from your phone.</p></div>
+    <ol class="howto">
+      <li><b>Create a free project.</b> Sign up at Supabase (you can use GitHub), tap <b>New project</b>, name it <i>replog</i>, pick a Europe region, create.
+        <a class="btn ghost" href="https://supabase.com/dashboard/projects" target="_blank" rel="noopener">Open Supabase</a></li>
+      <li><b>Create the table.</b> Copy this, then in Supabase open <b>SQL Editor</b>, tap <b>New query</b>, paste, tap <b>Run</b>.
+        <button type="button" class="btn ghost" data-act="cloud-copy">${cloud.copied ? "Copied ✓" : "Copy setup SQL"}</button>
+        <textarea id="cl-sql" readonly rows="3">${esc(SETUP_SQL)}</textarea></li>
+      <li><b>Allow instant sign-in.</b> In <b>Authentication → Sign In / Providers → Email</b>, turn <b>Confirm email</b> off, then save.</li>
+      <li><b>Paste your keys.</b> In <b>Project Settings → API</b>, copy the Project URL and the <i>anon public</i> key.
+        <label class="fld"><span>Project URL</span><input id="cl-url" inputmode="url" autocapitalize="off" autocomplete="off" placeholder="https://xxxx.supabase.co"></label>
+        <label class="fld"><span>Anon public key</span><input id="cl-key" autocapitalize="off" autocomplete="off" placeholder="eyJhbGciOi…"></label></li>
+    </ol>
+    ${cloud.err ? `<p class="err" role="alert">${esc(cloud.err)}</p>` : ""}
+    <button class="btn big" type="submit" ${cloud.busy ? "disabled" : ""}>${cloud.busy ? "Checking connection…" : "Connect"}</button>
+  </form></div>`;
+  if (keep.u) $("#cl-url").value = keep.u;
+  if (keep.k) $("#cl-key").value = keep.k;
+}
+async function connectCloud(){
+  let url = ($("#cl-url").value || "").trim().replace(/\/+$/, ""), key = ($("#cl-key").value || "").trim();
+  cloud.err = "";
+  if (/^[a-z0-9]{20}$/.test(url)) url = `https://${url}.supabase.co`;
+  if (!/^https:\/\/[^\s/]+$/.test(url)) { cloud.err = "The Project URL should look like https://xxxx.supabase.co"; return renderCloud(); }
+  if (key.split(".").length !== 3 && !/^sb_publishable_/.test(key)) { cloud.err = "That doesn't look like the anon public key. Copy the long key labelled anon / public."; return renderCloud(); }
+  cloud.busy = true; renderCloud();
+  try {
+    const test = window.supabase.createClient(url, key, { auth:{ persistSession:false } });
+    const { error } = await test.from("docs").select("id").limit(1);
+    if (error) {
+      cloud.err = /does not exist|could not find the table|PGRST205|42P01/i.test(error.message + (error.code || ""))
+        ? "Connected, but the table is missing. Run the setup SQL from step 2, then tap Connect again."
+        : /invalid api key|jwt|401/i.test(error.message) ? "Supabase rejected that key. Copy the anon public key again." : error.message;
+    } else {
+      localStorage.setItem("replog.cloud", JSON.stringify({ supabaseUrl:url, supabaseAnonKey:key }));
+      localStorage.removeItem("replog.guest");
+      location.reload(); return;
+    }
+  } catch { cloud.err = "Couldn't reach that address. Check the Project URL and your connection."; }
+  cloud.busy = false; renderCloud();
+}
+document.addEventListener("submit", e => { if (e.target.id === "cloudForm") { e.preventDefault(); connectCloud(); } });
+
 /* ---------- settings, account, backup ---------- */
 let authBusy = false, authErr = "";
 const standalone = () => matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
@@ -690,7 +764,8 @@ function renderSettings(){
   if (!S.settings) { w.innerHTML = ""; return; }
   const keep = { e: $("#se-email")?.value, p: $("#se-pass")?.value };
   let acct;
-  if (!sb) acct = `<p class="muted">Cloud sync isn't set up yet, so logs are saved only on this phone. Add your Supabase keys to <code>config.js</code> to back up and sync across devices.</p>`;
+  if (!sb) acct = `<p class="muted">${window.supabase ? "Cloud sync is off, so logs are saved only on this phone. Connect a free Supabase project to get sign-in and automatic backup." : "Cloud sync needs an internet connection the first time. Connect to the internet and reopen the app."}</p>
+    ${window.supabase ? `<button class="btn" data-act="cloud-open">Set up cloud sync</button>` : ""}`;
   else if (!session) acct = `<p class="muted">You're using the app without an account. Sign in to back up your logs and use them on any device.</p>
     <button class="btn" data-act="go-signin">Sign in or create account</button>`;
   else acct = `<p><b>${esc(userName() || session.user.email)}</b>${userName() ? `<br><span class="muted">${esc(session.user.email)}</span>` : ""}</p>
@@ -699,7 +774,7 @@ function renderSettings(){
   const chip = (act, v, cur, label) => `<button class="chip" data-act="${act}" data-v="${v}" aria-pressed="${cur === v}">${label}</button>`;
   w.innerHTML = `<div class="scrim" data-act="setclose"><div class="sheet" role="dialog" aria-label="Settings"><div class="sh"><div><h3>Settings</h3><button class="more" data-act="setclose" aria-label="Close">✕</button></div></div>
     <div class="groups">
-      <div class="setg"><h4>Account &amp; sync</h4>${acct}</div>
+      <div class="setg"><h4>Account &amp; sync</h4>${acct}${sb && CFG.fromApp ? `<button class="linkbtn" data-act="cloud-off">Disconnect cloud project</button>` : ""}</div>
       <div class="setg"><h4>Rest timer</h4><div class="chips">${[60,90,120,180].map(v => chip("setrest", v, SET.rest, v < 120 ? `${v}s` : `${v/60} min`)).join("")}</div></div>
       <div class="setg"><h4>Weight buttons step</h4><div class="chips">${[1.25,2.5,5].map(v => chip("setstep", v, SET.step, `${v} kg`)).join("")}</div></div>
       <div class="setg"><h4>Backup</h4><p class="muted">Save all your logs and workouts to a file, or restore from one.</p>
@@ -761,6 +836,18 @@ document.addEventListener("click", e => {
   if (a === "su-save") { setupSave(); return; }
   if (a === "su-cancel") { S.routines = S.setup.backup; S.setup = null; S.gate = null; renderGate(); render(); return; }
   if (a === "rebuild") { S.setup = { step:1, tpl:null, manual:true, backup:JSON.parse(JSON.stringify(S.routines)) }; S.openR = null; decideGate(); return; }
+  if (a === "cloud-open") { cloud.open = true; cloud.err = ""; S.settings = false; renderSettings(); renderCloud(); return; }
+  if (a === "cloud-close") { cloud.open = false; renderCloud(); return; }
+  if (a === "cloud-copy") {
+    const done = () => { cloud.copied = true; renderCloud(); };
+    try { navigator.clipboard.writeText(SETUP_SQL).then(done, () => { const t = $("#cl-sql"); t.focus(); t.select(); toast("Selected. Tap Copy."); }); }
+    catch { const t = $("#cl-sql"); t.focus(); t.select(); }
+    return;
+  }
+  if (a === "cloud-off") {
+    if (b.dataset.arm !== "1") { b.dataset.arm = "1"; b.textContent = "Tap again: sign out and disconnect"; return; }
+    (async () => { if (session) await signOutAll(); try { localStorage.removeItem("replog.cloud"); } catch {} location.reload(); })(); return;
+  }
   if (a === "settings") { S.settings = true; authErr = ""; renderSettings(); return; }
   if (a === "setclose") { if (e.target === b || b.tagName === "BUTTON") { S.settings = false; renderSettings(); } return; }
   if (a === "signin" || a === "signup") { doAuth(a === "signup" ? "up" : "in"); return; }
