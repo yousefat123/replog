@@ -222,6 +222,13 @@ function bestBefore(name, before){
   }));
   return best;
 }
+function lastBox(prev, cur, ex){
+  if (!prev) return `<div class="last none"><span class="lt">Last time</span><span class="lv">First time doing this exercise</span></div>`;
+  const ps = validSets(prev.ex);
+  return `<div class="last"><span class="lt">Last time · ${fmtShort(prev.key)}${ex.hi ? ` · target ${ex.lo}–${ex.hi}` : ""}</span>
+    <div class="lchips num-t">${ps.map((x,i) => `<span class="${i===cur?"on":""}"><small>${i+1}</small>${fmtKg(num(x.w))}×${num(x.r)}</span>`).join("")}</div></div>`;
+}
+function prevSet(prev, i){ if (!prev) return null; const ps = validSets(prev.ex); return ps[i] || null; }
 function hint(prev, ex){
   const lo = ex.lo || 8, hi = ex.hi || 12;
   if (!prev) return `First time: pick a weight you can do for ${lo}–${hi} clean reps`;
@@ -309,13 +316,12 @@ function viewLog(){
 
 function exCard(ex){
   const prev = previous(ex.name, S.cur), best = bestBefore(ex.name, S.cur);
-  const prevTxt = prev ? `Last · ${fmtShort(prev.key)}: ${validSets(prev.ex).map(s => `${fmtKg(num(s.w))}×${num(s.r)}`).join(", ")}` : "No previous sessions";
   const open = S.menu === ex.id;
   return `<section class="ex" data-ex="${ex.id}">
     <header><h3>${esc(ex.name)}${ex.hi ? `<small>${ex.lo}–${ex.hi} reps</small>` : ""}</h3><button class="more" data-act="menu" aria-label="Exercise options" aria-expanded="${open}">⋯</button></header>
     ${open ? `<div class="menu"><button data-act="rmset">Remove last set</button><button data-act="up">Move up</button>
       <button class="del ${S.armDel===ex.id?"arm":""}" data-act="delex">${S.armDel===ex.id?"Tap again to delete":"Delete exercise"}</button></div>` : ""}
-    <div class="meta"><p class="prev num-t">${prevTxt}</p><p class="hint">↑ ${esc(hint(prev, ex))}</p></div>
+    <div class="meta">${lastBox(prev, -1, ex)}<p class="hint">↑ ${esc(hint(prev, ex))}</p></div>
     <div class="sets"><div class="row head"><span>#</span><span>kg</span><span>reps</span><span>Done</span></div>
       ${ex.sets.map((s,i) => setRow(s,i,best)).join("")}</div>
     <div class="exfoot"><button class="addset" data-act="addset">+ Add set</button><span class="vol num-t" data-vol>${volTxt(ex)}</span></div>
@@ -479,12 +485,12 @@ function renderLive(){
       <button class="fin" data-act="lfinish">Finish</button></div>
     <div class="prog">${exs.map((e,i) => { const d = doneSets(e).length; return `<button class="${d===e.sets.length?"full":d?"part":""} ${i===L.ei?"cur":""}" data-act="ljump" data-i="${i}" aria-label="${esc(e.name)}"></button>`; }).join("")}</div>
     <div><h2 class="lname">${esc(ex.name)}</h2></div>
-    <div class="lmeta"><span class="prev num-t">${prev ? `Last · ${fmtShort(prev.key)}: ${validSets(prev.ex).map(x => `${fmtKg(num(x.w))}×${num(x.r)}`).join(", ")}` : "First time logging this"}${ex.hi ? ` · target ${ex.lo}–${ex.hi} reps` : ""}</span>
-      <span class="hint">↑ ${esc(hint(prev, ex))}</span></div>
+    <div class="lmeta">${lastBox(prev, L.si, ex)}<span class="hint">↑ ${esc(hint(prev, ex))}</span></div>
     <div class="pills">${ex.sets.map((x,i) => `<button class="pill ${x.done?"done":""}" data-act="lset" data-i="${i}" aria-current="${i===L.si}"><small>${x.done?"✓ ":""}Set ${i+1}</small><b>${x.w!==""||x.r!=="" ? `${fmtKg(num(x.w))}×${num(x.r)}` : "—"}</b></button>`).join("")}
       <button class="pill" data-act="ladd" aria-label="Add a set"><small>Add</small><b>+</b></button></div>
     ${restEl}
     <div class="big">
+      ${(() => { const ps = prevSet(prev, L.si); return `<div class="setcmp num-t"><b>Set ${L.si+1}</b>${ps ? `<span>Last time: <b>${fmtKg(num(ps.w))} × ${num(ps.r)}</b></span>` : `<span>No set ${L.si+1} last time</span>`}</div>`; })()}
       <div class="lbl"><span>Weight · kg</span><span>±${SET.step}</span></div>
       <div class="lnum"><button data-act="lstep" data-f="w" data-n="-${SET.step}" aria-label="Less weight">−</button>
         <input type="number" inputmode="decimal" id="lw" data-lf="w" value="${esc(s.w)}" placeholder="0" aria-label="Weight in kg">
